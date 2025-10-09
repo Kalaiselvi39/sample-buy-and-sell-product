@@ -107,4 +107,33 @@ export class ProductController {
       throw new HttpErrors.NotFound(`Product with id ${id} not found`);
     }
   }
+
+  @get('/seller/products', {
+  responses: {
+    '200': {
+      description: 'List of all products or filtered by seller',
+      content: {
+        'application/json': {
+          schema: {type: 'array', items: {'x-ts-type': Product}},
+        },
+      },
+    },
+  },
+})
+async listProducts(
+  @param.query.number('sellerId') sellerId?: number,
+  @param.query.string('search') search?: string,
+) {
+  const filter: any = {where: {}};
+
+  if (sellerId) {
+    filter.where.sellerId = sellerId;
+  }
+
+  if (search) {
+    filter.where.name = {like: `%${search}%`};
+  }
+
+  return this.productRepo.find(filter);
+}
 }
