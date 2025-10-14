@@ -1,15 +1,23 @@
-import {post,put,get,del,param, requestBody,HttpErrors,} from '@loopback/rest';
-import {repository} from '@loopback/repository';
+import {
+  post,
+  put,
+  get,
+  del,
+  param,
+  requestBody,
+  HttpErrors,
+} from '@loopback/rest';
+import {inject} from '@loopback/core';
+import {ProductService} from '../services/product.service';
 import {Product} from '../models/product.model';
-import {ProductRepository} from '../repositories';
 
 export class ProductController {
   constructor(
-    @repository(ProductRepository)
-    public productRepo: ProductRepository,
+    @inject('services.ProductService')
+    private productService: ProductService,
   ) {}
 
-  // Create a new product for a seller
+  // -------------------- CREATE --------------------
   @post('/seller/products', {
     responses: {
       '201': {
@@ -22,118 +30,46 @@ export class ProductController {
     if (!productData.sellerId) {
       throw new HttpErrors.BadRequest('sellerId is required');
     }
-
-    // Default values
-    const now = new Date().toISOString();
-    productData.status = productData.status ?? 'active';
-    productData.createdAt = now;
-    productData.updatedAt = now;
-
-    return this.productRepo.create(productData as Product);
+    return this.productService.createProduct(productData);
   }
 
-  // Update a product by ID
-  @put('/seller/products/{id}', {
+  // -------------------- GET ALL --------------------
+  @get('/seller/products', {
     responses: {
-      '204': {
-        description: 'Product updated successfully (no content)',
+      '200': {
+        description: 'List of all products',
+        content: {'application/json': {schema: {type: 'array', items: {'x-ts-type': Product}}}},
       },
-      '404': {description: 'Product not found'},
     },
   })
+  async listProducts() {
+    return this.productService.findAll();
+  }
+
+  // -------------------- GET BY ID --------------------
+  @get('/seller/products/{id}')
+  async findById(@param.path.number('id') id: number) {
+    const product = await this.productService.findById(id);
+    if (!product) {
+      throw new HttpErrors.NotFound(`Product with id ${id} not found`);
+    }
+    return product;
+  }
+
+  // -------------------- UPDATE --------------------
+  @put('/seller/products/{id}')
   async updateProduct(
     @param.path.number('id') id: number,
-    @requestBody() payload: Partial<Product>,
-  ): Promise<void> {
-    try {
-      await this.productRepo.updateById(id, {
-        ...payload,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch {
-      throw new HttpErrors.NotFound(`Product with id ${id} not found`);
-    }
+    @requestBody() data: Partial<Product>,
+  ) {
+    await this.productService.updateProduct(id, data);
+    return {message: 'Product updated successfully'};
   }
 
-  // List all products by a seller
-  @get('/seller/products/{sellerId}', {
-    responses: {
-      '200': {
-        description: 'List of products by a seller',
-        content: {
-          'application/json': {
-            schema: {type: 'array', items: {'x-ts-type': Product}},
-          },
-        },
-      },
-    },
-  })
-  async listBySeller(@param.path.number('sellerId') sellerId: number) {
-    return this.productRepo.find({where: {sellerId}});
+  // -------------------- DELETE --------------------
+  @del('/seller/products/{id}')
+  async deleteProduct(@param.path.number('id') id: number) {
+    await this.productService.deleteProduct(id);
+    return {message: 'Product deleted successfully'};
   }
-
-  // Get a single product by ID
-  @get('/seller/product/{id}', {
-    responses: {
-      '200': {
-        description: 'Product instance',
-        content: {'application/json': {schema: {'x-ts-type': Product}}},
-      },
-      '404': {description: 'Product not found'},
-    },
-  })
-  async findById(@param.path.number('id') id: number): Promise<Product> {
-    try {
-      return await this.productRepo.findById(id);
-    } catch {
-      throw new HttpErrors.NotFound(`Product with id ${id} not found`);
-    }
-  }
-
-  // Delete a product by ID
-  @del('/seller/products/{id}', {
-    responses: {
-      '204': {
-        description: 'Product deleted successfully',
-      },
-      '404': {description: 'Product not found'},
-    },
-  })
-  async deleteProduct(@param.path.number('id') id: number): Promise<string> {
-    try {
-      await this.productRepo.deleteById(id);
-      return "deleted successfully"
-    } catch {
-      throw new HttpErrors.NotFound(`Product with id ${id} not found`);
-    }
-  }
-
-  @get('/seller/products', {
-  responses: {
-    '200': {
-      description: 'List of all products or filtered by seller',
-      content: {
-        'application/json': {
-          schema: {type: 'array', items: {'x-ts-type': Product}},
-        },
-      },
-    },
-  },
-})
-async listProducts(
-  @param.query.number('sellerId') sellerId?: number,
-  @param.query.string('search') search?: string,
-) {
-  const filter: any = {where: {}};
-
-  if (sellerId) {
-    filter.where.sellerId = sellerId;
-  }
-
-  if (search) {
-    filter.where.name = {like: `%${search}%`};
-  }
-
-  return this.productRepo.find(filter);
-}
 }

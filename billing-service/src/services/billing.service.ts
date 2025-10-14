@@ -31,10 +31,8 @@ export class BillingService {
     @inject(CONFIG.BUYER_API_URL) private buyerApiUrl: string,
   ) {}
 
-// Generate a single CSV report for all buyers for a month
-
+  /** Generate CSV for a specific month/year */
   async generateMonthlyCsv(month: number, year: number): Promise<string> {
-    // Fetch all purchases from Buyer service
     const {data: purchases} = await axios.get<Purchase[]>(
       `${this.buyerApiUrl}/buyer/buys?month=${month}&year=${year}`,
     );
@@ -43,11 +41,33 @@ export class BillingService {
       throw new Error('No purchases found for this month');
     }
 
+    return this.generateCsvFile(purchases, `monthly_report_${year}_${month}.csv`);
+  }
+
+  /** Generate CSV for a custom date range */
+  async generateCsvForDateRange(start: Date, end: Date): Promise<string> {
+    const startStr = start.toISOString();
+    const endStr = end.toISOString();
+
+    const {data: purchases} = await axios.get<Purchase[]>(
+      `${this.buyerApiUrl}/buyer/buys?startDate=${startStr}&endDate=${endStr}`,
+    );
+
+    if (!purchases.length) {
+      throw new Error('No purchases found for this date range');
+    }
+
+    const fileName = `report_${start.toISOString().slice(0,10)}_to_${end.toISOString().slice(0,10)}.csv`;
+    return this.generateCsvFile(purchases, fileName);
+  }
+
+  /** Internal helper to generate CSV from purchases */
+  private async generateCsvFile(purchases: Purchase[], fileName: string): Promise<string> {
     // Fetch product details for all purchases
     const detailedPurchases: DetailedPurchase[] = await Promise.all(
       purchases.map(async p => {
         const {data: product} = await axios.get<Product>(
-          `${this.sellerApiUrl}/seller/product/${p.productId}`,
+          `${this.sellerApiUrl}/seller/products/${p.productId}`,
         );
         return {
           ...p,
@@ -58,12 +78,11 @@ export class BillingService {
       }),
     );
 
-    //  Prepare folder
+    // Prepare folder
     const folderPath = path.join(__dirname, '../../billing_reports');
     fs.mkdirSync(folderPath, {recursive: true});
 
-    // Create CSV file path
-    const fileName = `monthly_report_${year}_${month}.csv`;
+    // CSV file path
     const filePath = path.join(folderPath, fileName);
 
     const csvWriter = createObjectCsvWriter({
@@ -80,7 +99,6 @@ export class BillingService {
     });
 
     await csvWriter.writeRecords(detailedPurchases);
-
     return filePath;
   }
 }

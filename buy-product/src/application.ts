@@ -1,5 +1,5 @@
 import {BootMixin} from '@loopback/boot';
-import {ApplicationConfig,BindingKey} from '@loopback/core';
+import {ApplicationConfig, BindingKey} from '@loopback/core';
 import {
   RestExplorerBindings,
   RestExplorerComponent,
@@ -14,33 +14,37 @@ import {BuyRepository} from './repositories/buy.repository';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
+
 export {ApplicationConfig};
 
 export const CONFIG = {
   SELLER_API_URL: BindingKey.create<string>('config.sellerApiUrl'),
 };
+
 export class BuyProductApplication extends BootMixin(
   ServiceMixin(RepositoryMixin(RestApplication)),
 ) {
   constructor(options: ApplicationConfig = {}) {
     super(options);
 
-    // Bind environment-based config values
-    this.bind('config.sellerApiUrl').to(
-  process.env.SELLER_API_URL || 'http://127.0.0.1:4001',
-);
-    // Set up the custom sequence
+    // ✅ Bind Seller service URL (hardcoded or from env)
+    this.bind(CONFIG.SELLER_API_URL).to(
+      process.env.SELLER_API_URL ?? 'http://127.0.0.1:4001',
+    );
+
+    // ✅ Do NOT bind any gatewayUrl — Buyer shouldn't call the Gateway
+
+    // Setup sequence
     this.sequence(MySequence);
 
-    // Set up default home page
+    // Serve static files
     this.static('/', path.join(__dirname, '../public'));
 
-    // Explorer configuration
-    this.configure(RestExplorerBindings.COMPONENT).to({
-      path: '/explorer',
-    });
+    // Setup API explorer
+    this.configure(RestExplorerBindings.COMPONENT).to({path: '/explorer'});
     this.component(RestExplorerComponent);
 
+    // Boot setup
     this.projectRoot = __dirname;
     this.bootOptions = {
       controllers: {
@@ -50,13 +54,12 @@ export class BuyProductApplication extends BootMixin(
       },
     };
 
-    // Register repository and services for Buy module
+    // ✅ Register repository and service
     this.repository(BuyRepository);
     this.bind('services.PurchaseService').toClass(PurchaseService);
 
-      console.log(
-  `Billing Service started with SELLER_API_URL: ${this.getSync(CONFIG.SELLER_API_URL)}`,
-);
+    // ✅ Debug logging
+    console.log('Buyer Service started with:');
+    console.log(`   → SELLER_API_URL: ${this.getSync(CONFIG.SELLER_API_URL)}`);
   }
-  
 }

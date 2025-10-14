@@ -10,10 +10,11 @@ export class BillingController {
     private billingService: BillingService,
   ) {}
 
-// Download a single CSV report for all buyers for a given month
- 
-  @get('/billing/csv-invoices/download')
-  async downloadCsv(
+  /**
+   * Generate CSV for a specific month/year
+   */
+  @get('/billing/csv-invoices/download/monthly')
+  async downloadMonthlyCsv(
     @param.query.number('month') month: number,
     @param.query.number('year') year: number,
     @inject(RestBindings.Http.RESPONSE) response: Response,
@@ -29,7 +30,48 @@ export class BillingController {
     }
 
     response.setHeader('Content-Type', 'text/csv');
-    response.setHeader('Content-Disposition', `attachment; filename=${path.basename(filePath)}`);
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${path.basename(filePath)}`,
+    );
+    return createReadStream(filePath);
+  }
+
+  /**
+   * Generate CSV for a custom date range
+   */
+  @get('/billing/csv-invoices/download/range')
+  async downloadRangeCsv(
+    @param.query.string('startDate') startDate: string,
+    @param.query.string('endDate') endDate: string,
+    @inject(RestBindings.Http.RESPONSE) response: Response,
+  ) {
+    if (!startDate || !endDate) {
+      throw new HttpErrors.BadRequest('startDate and endDate query parameters are required');
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new HttpErrors.BadRequest('Invalid date format. Use YYYY-MM-DD');
+    }
+
+    if (start > end) {
+      throw new HttpErrors.BadRequest('startDate cannot be later than endDate');
+    }
+
+    const filePath = await this.billingService.generateCsvForDateRange(start, end);
+
+    if (!existsSync(filePath)) {
+      throw new HttpErrors.NotFound('CSV file not found');
+    }
+
+    response.setHeader('Content-Type', 'text/csv');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${path.basename(filePath)}`,
+    );
     return createReadStream(filePath);
   }
 }
