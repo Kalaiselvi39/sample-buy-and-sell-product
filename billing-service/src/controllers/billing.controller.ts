@@ -1,4 +1,10 @@
-import {get, param, HttpErrors, Response, RestBindings} from '@loopback/rest';
+import {
+  get,
+  param,
+  HttpErrors,
+  Response,
+  RestBindings,
+} from '@loopback/rest';
 import {inject} from '@loopback/core';
 import {BillingService} from '../services/billing.service';
 import {createReadStream, existsSync} from 'fs';
@@ -10,68 +16,75 @@ export class BillingController {
     private billingService: BillingService,
   ) {}
 
-  /**
-   * Generate CSV for a specific month/year
-   */
+  // -------------------- MONTHLY REPORT --------------------
   @get('/billing/csv-invoices/download/monthly')
-  async downloadMonthlyCsv(
+  async downloadMonthlyInvoice(
     @param.query.number('month') month: number,
     @param.query.number('year') year: number,
+    @param.query.string('format') format: 'csv' | 'pdf' = 'csv',
     @inject(RestBindings.Http.RESPONSE) response: Response,
   ) {
     if (!month || !year) {
-      throw new HttpErrors.BadRequest('month and year query parameters are required');
+      throw new HttpErrors.BadRequest('month and year are required');
     }
 
-    const filePath = await this.billingService.generateMonthlyCsv(month, year);
+    const files = await this.billingService.generateMonthlyReport(month, year);
+    const filePath = format === 'pdf' ? files.pdf : files.csv;
 
     if (!existsSync(filePath)) {
-      throw new HttpErrors.NotFound('CSV file not found');
+      throw new HttpErrors.NotFound('File not found');
     }
 
-    response.setHeader('Content-Type', 'text/csv');
+    response.setHeader(
+      'Content-Type',
+      format === 'pdf' ? 'application/pdf' : 'text/csv',
+    );
     response.setHeader(
       'Content-Disposition',
       `attachment; filename=${path.basename(filePath)}`,
     );
+
     return createReadStream(filePath);
   }
 
-  /**
-   * Generate CSV for a custom date range
-   */
+  // -------------------- RANGE REPORT --------------------
   @get('/billing/csv-invoices/download/range')
-  async downloadRangeCsv(
+  async downloadRangeInvoice(
     @param.query.string('startDate') startDate: string,
     @param.query.string('endDate') endDate: string,
+    @param.query.string('format') format: 'csv' | 'pdf' = 'csv',
     @inject(RestBindings.Http.RESPONSE) response: Response,
   ) {
     if (!startDate || !endDate) {
-      throw new HttpErrors.BadRequest('startDate and endDate query parameters are required');
+      throw new HttpErrors.BadRequest('startDate and endDate are required');
     }
 
     const start = new Date(startDate);
     const end = new Date(endDate);
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new HttpErrors.BadRequest('Invalid date format. Use YYYY-MM-DD');
+      throw new HttpErrors.BadRequest('Invalid date format');
     }
-
     if (start > end) {
       throw new HttpErrors.BadRequest('startDate cannot be later than endDate');
     }
 
-    const filePath = await this.billingService.generateCsvForDateRange(start, end);
+    const files = await this.billingService.generateRangeReport(start, end);
+    const filePath = format === 'pdf' ? files.pdf : files.csv;
 
     if (!existsSync(filePath)) {
-      throw new HttpErrors.NotFound('CSV file not found');
+      throw new HttpErrors.NotFound('File not found');
     }
 
-    response.setHeader('Content-Type', 'text/csv');
+    response.setHeader(
+      'Content-Type',
+      format === 'pdf' ? 'application/pdf' : 'text/csv',
+    );
     response.setHeader(
       'Content-Disposition',
       `attachment; filename=${path.basename(filePath)}`,
     );
+
     return createReadStream(filePath);
   }
 }

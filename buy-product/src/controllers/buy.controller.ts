@@ -1,5 +1,5 @@
 import {repository} from '@loopback/repository';
-import {post, get, param, requestBody, HttpErrors} from '@loopback/rest';
+import {post, get, param, requestBody, HttpErrors, getModelSchemaRef} from '@loopback/rest';
 import {Buy} from '../models/buy.model';
 import {BuyRepository} from '../repositories/buy.repository';
 import {inject} from '@loopback/core';
@@ -14,7 +14,7 @@ export class BuyController {
     private purchaseService: PurchaseService,
   ) {}
 
-  // -------------------- PRODUCTS via Gateway --------------------
+  // -------------------- PRODUCTS --------------------
   @get('/buyer/products')
   async listProducts(
     @param.query.number('sellerId') sellerId?: number,
@@ -23,8 +23,8 @@ export class BuyController {
     try {
       return await this.purchaseService.listProducts(sellerId, search);
     } catch (err: any) {
-      console.error('Error fetching products:', err.message);
-      return [];
+      console.error('[BuyController.listProducts] Error:', err.message);
+      throw err; // Already proper HttpErrors from PurchaseService
     }
   }
 
@@ -33,35 +33,45 @@ export class BuyController {
     try {
       return await this.purchaseService.getProduct(id);
     } catch (err: any) {
-      throw new HttpErrors.NotFound(`Product ${id} not found`);
+      console.error('[BuyController.getProduct] Error:', err.message);
+      throw err; // Already proper HttpErrors from PurchaseService
     }
   }
 
-  // -------------------- CREATE PURCHASE --------------------
+  // -------------------- PURCHASE --------------------
   @post('/buyer/buys')
-  async create(@requestBody() buyData: Partial<Buy>): Promise<Buy> {
+  async create(
+    @requestBody({
+      description: 'Purchase data',
+      required: true,
+      content: {
+        'application/json': {
+          schema: getModelSchemaRef(Buy, {partial: true}),
+        },
+      },
+    })
+    buyData: Partial<Buy>,
+  ): Promise<Buy> {
+    console.log('[BuyController.create] Request data:', buyData);
 
-    console.log("hello from buy controller from outside data check");
     if (!buyData.productId || !buyData.quantity || !buyData.buyerId) {
-      throw new HttpErrors.BadRequest(
-        'productId, quantity, and buyerId are required',
-      );
+      throw new HttpErrors.BadRequest('productId, quantity, and buyerId are required');
     }
-    console.log("hello from buy controller from outside try");
+
     try {
-      console.log("hello from buy controller");
       return await this.purchaseService.createPurchase({
         productId: buyData.productId,
         buyerId: buyData.buyerId,
         quantity: buyData.quantity,
-        
       });
     } catch (err: any) {
-      console.error('Error creating purchase:', err.message);
-      // Re-throw as proper HTTP error
-      if (err.response?.status) {
-        throw new HttpErrors.HttpError(err.response.data?.message || err.message);
+      console.error('[BuyController.create] Error creating purchase:', err.message);
+
+      // Convert unknown errors into proper HttpErrors
+      if (!(err instanceof HttpErrors.HttpError)) {
+        throw new HttpErrors.InternalServerError('Failed to create purchase');
       }
+
       throw err;
     }
   }
@@ -69,11 +79,24 @@ export class BuyController {
   // -------------------- PURCHASE HISTORY --------------------
   @get('/buyer/buys/{id}')
   async findById(@param.path.number('id') id: number): Promise<Buy> {
-    return this.purchaseService.findById(id);
+    try {
+      return await this.purchaseService.findById(id);
+    } catch (err: any) {
+      console.error('[BuyController.findById] Error:', err.message);
+      if (err.name === 'EntityNotFound') {
+        throw new HttpErrors.NotFound(`Purchase ${id} not found`);
+      }
+      throw new HttpErrors.InternalServerError('Failed to fetch purchase');
+    }
   }
 
   @get('/buyer/buys')
   async find(): Promise<Buy[]> {
-    return this.purchaseService.list();
+    try {
+      return await this.purchaseService.list();
+    } catch (err: any) {
+      console.error('[BuyController.find] Error:', err.message);
+      throw new HttpErrors.InternalServerError('Failed to fetch purchases');
+    }
   }
 }

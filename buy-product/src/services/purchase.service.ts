@@ -11,109 +11,108 @@ export class PurchaseService {
     @repository(BuyRepository)
     private buyRepo: BuyRepository,
 
-    // Seller microservice URL
     @inject('config.sellerApiUrl')
     private sellerServiceUrl: string,
   ) {}
 
-  // -------------------- PRODUCTS --------------------
+  private axiosInstance = axios.create({
+    timeout: 15000, // 15 seconds timeout
+  });
 
-  /** Fetch all products directly from Seller Service */
+  /** Fetch all products from Seller service */
   async listProducts(sellerId?: number, search?: string) {
-    const start = Date.now();
     try {
-      const res = await axios.get(`${this.sellerServiceUrl}/seller/products`, {
+      const res = await this.axiosInstance.get(`${this.sellerServiceUrl}/seller/products`, {
         params: {sellerId, search},
-        timeout: 5000,
       });
-      console.log(`[listProducts] fetched in ${(Date.now() - start) / 1000}s`);
       return res.data || [];
     } catch (err: any) {
-      console.error(`[listProducts] Error fetching products: ${err.message}`);
-      return [];
+      this.handleAxiosError(err, 'listing products');
     }
   }
 
-  /** Fetch a single product directly from Seller Service */
+  /** Fetch a single product by ID */
   async getProduct(id: number) {
-    const start = Date.now();
     try {
-      const res = await axios.get(`${this.sellerServiceUrl}/seller/products/${id}`, {timeout: 5000});
-      if (!res.data) throw new Error('No data returned from Seller');
-      console.log(`[getProduct] Product ${id} fetched in ${(Date.now() - start) / 1000}s`);
+      const res = await this.axiosInstance.get(`${this.sellerServiceUrl}/seller/products/${id}`);
+      if (!res.data) {
+        throw new HttpErrors.NotFound(`Product ${id} not found in Seller Service`);
+      }
       return res.data;
     } catch (err: any) {
-      console.error(`[getProduct] Error fetching product ${id}:`, err.message);
-      throw new HttpErrors.NotFound(`Product ${id} not found in Seller Service`);
+      this.handleAxiosError(err, `fetching product ${id}`);
     }
   }
 
-  // -------------------- PURCHASE --------------------
+  /** Update product quantity at Seller service */
+  private async updateProductQuantity(productId: number, newQuantity: number) {
+    try {
+      await this.axiosInstance.put(
+        `${this.sellerServiceUrl}/seller/products/${productId}`,
+        {quantity: newQuantity},
+      );
+    } catch (err: any) {
+      this.handleAxiosError(err, `updating quantity for product ${productId}`);
+    }
+  }
 
+  /** Centralized Axios error handler */
+  private handleAxiosError(err: AxiosError, context: string): never {
+    console.error(`[PurchaseService] Error ${context}:`, err.message);
+
+    if (err.response) {
+      // Received response from server but it's an error
+      if (err.response.status === 404) {
+        throw new HttpErrors.NotFound(`Resource not found while ${context}`);
+      } else if (err.response.status >= 500) {
+        throw new HttpErrors.BadGateway(`Seller service error while ${context}`);
+      }
+    } else if (err.code === 'ECONNABORTED') {
+      // Timeout
+      throw new HttpErrors.GatewayTimeout(`Seller service timeout while ${context}`);
+    } else if (err.request) {
+      // No response received
+      throw new HttpErrors.BadGateway(`No response from Seller service while ${context}`);
+    }
+
+    // Fallback
+    throw new HttpErrors.InternalServerError(`Unexpected error while ${context}`);
+  }
+
+  /** Create a purchase */
   async createPurchase(data: {productId: number; buyerId: number; quantity: number}): Promise<Buy> {
     const {productId, buyerId, quantity} = data;
-    const startTime = Date.now();
 
-    const log = (msg: string, extra?: any) => {
-      console.log(`[createPurchase][${((Date.now() - startTime) / 1000).toFixed(3)}s] ${msg}`, extra ?? '');
-    };
-
-    log(`Starting purchase for buyerId=${buyerId}, productId=${productId}, quantity=${quantity}`);
-
-    // Fetch product details
-    log(`Fetching product details from Seller Service`);
+    // Fetch product
     const product = await this.getProduct(productId);
-    log(`Product details fetched`, product);
-
     const available = product.quantity ?? 0;
+
     if (available < quantity) {
-      log(`Requested quantity (${quantity}) exceeds available (${available})`);
-      throw new HttpErrors.BadRequest(`Only ${available} items available, you requested ${quantity}`);
+      throw new HttpErrors.BadRequest(`Requested quantity (${quantity}) exceeds available (${available})`);
     }
 
-    // Update product quantity in Seller Service
-    try {
-      log(`Updating product quantity via Seller Service`);
-      const updateStart = Date.now();
-      await axios.put(
-        `${this.sellerServiceUrl}/seller/products/${productId}`,
-        {quantity: available - quantity},
-        {timeout: 5000},
-      );
-      log(`Quantity updated successfully in ${(Date.now() - updateStart) / 1000}s`);
-    } catch (err: any) {
-      if (axios.isAxiosError(err)) {
-        log(`Axios error updating quantity:`, err.message);
-      } else {
-        log(`Unknown error updating quantity:`, err);
-      }
-      throw new HttpErrors.InternalServerError('Failed to update product quantity');
-    }
+    // Update quantity
+    await this.updateProductQuantity(productId, available - quantity);
 
-    // Save purchase record in Buyer DB
-    const saveStart = Date.now();
+    // Save purchase record
     const buyRecord = await this.buyRepo.create({
-  productId,
-  buyerId,
-  quantity,
-  unitPrice: product.price ?? 0,
-  totalPrice: (product.price ?? 0) * quantity,
-  purchasedAt: new Date().toISOString(),
-});
+      productId,
+      buyerId,
+      quantity,
+      unitPrice: Number(product.price ?? 0),
+      totalPrice: (Number(product.price ?? 0)) * quantity,
+      purchasedAt: new Date().toISOString(),
+    });
 
-
-    log(`Purchase record saved in ${(Date.now() - saveStart) / 1000}s`, buyRecord);
-
-    log(`Purchase completed in ${(Date.now() - startTime) / 1000}s`);
     return buyRecord;
   }
 
-  // -------------------- PURCHASE HISTORY --------------------
-
+  /** List all purchases */
   async list(): Promise<Buy[]> {
     return this.buyRepo.find();
   }
 
+  /** Find a purchase by ID */
   async findById(id: number): Promise<Buy> {
     return this.buyRepo.findById(id);
   }

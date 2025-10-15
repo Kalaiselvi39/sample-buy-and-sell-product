@@ -1,9 +1,5 @@
 import {BootMixin} from '@loopback/boot';
-import {ApplicationConfig, BindingKey} from '@loopback/core';
-import {
-  RestExplorerBindings,
-  RestExplorerComponent,
-} from '@loopback/rest-explorer';
+import {ApplicationConfig} from '@loopback/core';
 import {RepositoryMixin} from '@loopback/repository';
 import {RestApplication} from '@loopback/rest';
 import {ServiceMixin} from '@loopback/service-proxy';
@@ -18,7 +14,7 @@ dotenv.config();
 export {ApplicationConfig};
 
 export const CONFIG = {
-  SELLER_API_URL: BindingKey.create<string>('config.sellerApiUrl'),
+  SELLER_API_URL: 'config.sellerApiUrl',
 };
 
 export class BuyProductApplication extends BootMixin(
@@ -27,12 +23,10 @@ export class BuyProductApplication extends BootMixin(
   constructor(options: ApplicationConfig = {}) {
     super(options);
 
-    // ✅ Bind Seller service URL (hardcoded or from env)
+    // Bind Seller service URL
     this.bind(CONFIG.SELLER_API_URL).to(
       process.env.SELLER_API_URL ?? 'http://127.0.0.1:4001',
     );
-
-    // ✅ Do NOT bind any gatewayUrl — Buyer shouldn't call the Gateway
 
     // Setup sequence
     this.sequence(MySequence);
@@ -40,11 +34,7 @@ export class BuyProductApplication extends BootMixin(
     // Serve static files
     this.static('/', path.join(__dirname, '../public'));
 
-    // Setup API explorer
-    this.configure(RestExplorerBindings.COMPONENT).to({path: '/explorer'});
-    this.component(RestExplorerComponent);
-
-    // Boot setup
+    // Boot options
     this.projectRoot = __dirname;
     this.bootOptions = {
       controllers: {
@@ -54,11 +44,11 @@ export class BuyProductApplication extends BootMixin(
       },
     };
 
-    // ✅ Register repository and service
+    // Register repository and service
     this.repository(BuyRepository);
     this.bind('services.PurchaseService').toClass(PurchaseService);
 
-    // ✅ Debug logging
+    // Debug logging
     console.log('Buyer Service started with:');
     console.log(`   → SELLER_API_URL: ${this.getSync(CONFIG.SELLER_API_URL)}`);
   }
