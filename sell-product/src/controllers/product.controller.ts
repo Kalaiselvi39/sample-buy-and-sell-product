@@ -48,13 +48,22 @@ export class ProductController {
 
   // -------------------- GET BY ID --------------------
   @get('/seller/products/{id}')
-  async findById(@param.path.number('id') id: number) {
+async findById(@param.path.number('id') id: number) {
+  try {
     const product = await this.productService.findById(id);
-    if (!product) {
+    if (product==null)
+      return "The id product is not available";
+    return product;
+  } catch (err: any) {
+    if (err.code === 'ENTITY_NOT_FOUND') {
       throw new HttpErrors.NotFound(`Product with id ${id} not found`);
     }
-    return product;
+    
+    console.error('[SellerService] findById error:', err);
+    throw new HttpErrors.InternalServerError('Unexpected error');
   }
+}
+
 
   // -------------------- UPDATE --------------------
   @put('/seller/products/{id}')
